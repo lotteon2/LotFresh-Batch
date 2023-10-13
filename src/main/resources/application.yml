@@ -1,0 +1,11 @@
+logging:
+  level:
+    attendance: debug
+spring:
+  batch:
+    job:
+      names: ${job.name:NONE}
+  datasource:
+    url: jdbc:mysql://localhost:3306/bit?serverTimezone=Asia/Seoul
+    username: root
+    password: 1234
