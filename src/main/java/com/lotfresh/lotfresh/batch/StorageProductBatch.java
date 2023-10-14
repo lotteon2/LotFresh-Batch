@@ -8,6 +8,7 @@ import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepScope;
+import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.ItemWriter;
 import org.springframework.batch.item.database.JdbcPagingItemReader;
 import org.springframework.batch.item.database.Order;
@@ -21,10 +22,10 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
 import javax.sql.DataSource;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 @Slf4j
@@ -34,7 +35,7 @@ public class StorageProductBatch {
     private final StepBuilderFactory stepBuilderFactory;
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final DataSource dataSource;
-    private final int chunkSize = 3;
+    private final int chunkSize = 500;
 
     @Bean
     public Job storageProductExpirationDeleteJob() throws Exception{
@@ -45,8 +46,9 @@ public class StorageProductBatch {
     @Bean
     public Step storageProductExpirationDeleteStep() throws Exception{
         return stepBuilderFactory.get("storageProductExpirationDeleteStep")
-                .<StorageProduct, StorageProduct>chunk(chunkSize)
+                .<StorageProduct, Long>chunk(chunkSize)
                 .reader(expirationItemReader(null))
+                .processor(convertProcessor())
                 .writer(expirationItemWriter())
                 .build();
     }
@@ -58,7 +60,8 @@ public class StorageProductBatch {
         Map<String, Object> parameterValues = new HashMap<>();
         parameterValues.put("date", date);
 
-        JdbcPagingItemReader<StorageProduct> itemReader = new JdbcPagingItemReader<StorageProduct>() {
+        // [TODO] 동작 원리 확인 필요 ( https://devocean.sk.com/blog/techBoardDetail.do?ID=164123 )
+        JdbcPagingItemReader<StorageProduct> itemReader = new JdbcPagingItemReader<>() {
             @Override
             public int getPage() {
                 return 0; // 항상 첫 페이지만 읽도록 설정
@@ -77,17 +80,16 @@ public class StorageProductBatch {
     }
 
     @Bean
-    public ItemWriter<StorageProduct> expirationItemWriter() {
+    public ItemProcessor<StorageProduct, Long> convertProcessor() {
+        return StorageProduct::getId;
+    }
+
+    @Bean
+    public ItemWriter<Long> expirationItemWriter() {
         return items -> {
-            List<Long> idsToDelete = items.stream()
-                    .map(StorageProduct::getId)
-                    .collect(Collectors.toList());
-
             String deleteQuery = "DELETE FROM storage_product WHERE id IN (:ids)";
-
             MapSqlParameterSource parameters = new MapSqlParameterSource();
-            parameters.addValue("ids", idsToDelete);
-
+            parameters.addValue("ids", items);
             jdbcTemplate.update(deleteQuery, parameters);
         };
     }
